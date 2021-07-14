@@ -1632,6 +1632,16 @@ outlineView:(NSOutlineView*)outlineView
 // ============================================================================
 @implementation wxCocoaOutlineView
 
++ (void)initialize
+{
+    static BOOL initialized = NO;
+    if (!initialized)
+    {
+        initialized = YES;
+        wxOSXCocoaClassAddWXMethods( self );
+    }
+}
+
 //
 // initializers / destructor
 //
@@ -1723,20 +1733,15 @@ outlineView:(NSOutlineView*)outlineView
 // Default enter key behaviour is to begin cell editing. Subclass keyDown to
 // provide a keyboard wxEVT_DATAVIEW_ITEM_ACTIVATED event and allow the NSEvent
 // to pass if the wxEvent is not processed.
-- (void)keyDown:(NSEvent *)event
+
+// catch events routed here and feed them back before things get routed up the responder chain
+// otherwise we lose functionality like arrow keys etc.
+- (void)doCommandBySelector:(SEL)aSelector
 {
-    if( [[event charactersIgnoringModifiers]
-         characterAtIndex: 0] == NSCarriageReturnCharacter )
+    wxWidgetCocoaImpl* impl = (wxWidgetCocoaImpl* ) wxWidgetImpl::FindFromWXWidget( self );
+    if (impl)
     {
-        wxDataViewCtrl* const dvc = implementation->GetDataViewCtrl();
-        const wxDataViewItem item = wxDataViewItem( [[self itemAtRow:[self selectedRow]] pointer]);
-        wxDataViewEvent eventDV(wxEVT_DATAVIEW_ITEM_ACTIVATED, dvc, item);
-        if ( !dvc->GetEventHandler()->ProcessEvent(eventDV) )
-            [super keyDown:event];
-    }
-    else
-    {
-        [super keyDown:event];  // all other keys
+        impl->doCommandBySelector(aSelector, self, _cmd);
     }
 }
 
@@ -2082,7 +2087,8 @@ wxCocoaDataViewControl::wxCocoaDataViewControl(wxWindow* peer,
     : wxWidgetCocoaImpl
       (
         peer,
-        [[NSScrollView alloc] initWithFrame:wxOSXGetFrameForControl(peer,pos,size)]
+        [[NSScrollView alloc] initWithFrame:wxOSXGetFrameForControl(peer,pos,size)],
+        wxWidgetImpl::Widget_UserKeyEvents
       ),
       m_DataSource(NULL),
       m_OutlineView([[wxCocoaOutlineView alloc] init]),
@@ -2129,6 +2135,37 @@ wxCocoaDataViewControl::~wxCocoaDataViewControl()
     [m_DataSource  release];
     [m_OutlineView release];
 }
+
+void wxCocoaDataViewControl::keyEvent(WX_NSEvent event, WXWidget slf, void *_cmd)
+{
+    if( [event type] == NSKeyDown && [[event charactersIgnoringModifiers]
+         characterAtIndex: 0] == NSCarriageReturnCharacter )
+    {
+        wxDataViewCtrl* const dvc = GetDataViewCtrl();
+        const wxDataViewItem item = wxDataViewItem( [[m_OutlineView itemAtRow:[m_OutlineView selectedRow]] pointer]);
+        wxDataViewEvent eventDV(wxEVT_DATAVIEW_ITEM_ACTIVATED, dvc, item);
+        if ( !dvc->GetEventHandler()->ProcessEvent(eventDV) )
+            wxWidgetCocoaImpl::keyEvent(event, slf, _cmd);
+    }
+    else
+    {
+        wxWidgetCocoaImpl::keyEvent(event, slf, _cmd);  // all other keys
+    }
+}
+
+bool wxCocoaDataViewControl::doCommandBySelector(void* sel, WXWidget slf, void* _cmd)
+{
+    bool handled = wxWidgetCocoaImpl::doCommandBySelector(sel, slf, _cmd);
+    // if this special key has not been handled
+    if ( !handled && IsInNativeKeyDown() )
+    {
+        // send the original key event back to the native implementation to get proper default handling like eg for arrow keys
+        wxOSX_EventHandlerPtr superimpl = (wxOSX_EventHandlerPtr) [[slf superclass] instanceMethodForSelector:@selector(keyDown:)];
+        superimpl(slf, @selector(keyDown:), GetLastNativeKeyDownEvent());
+    }
+    return handled;
+}
+
 
 //
 // column related methods (inherited from wxDataViewWidgetImpl)
@@ -2206,7 +2243,8 @@ bool wxCocoaDataViewControl::InsertColumn(unsigned int pos, wxDataViewColumn* co
 void wxCocoaDataViewControl::FitColumnWidthToContent(unsigned int pos)
 {
     const int count = GetCount();
-    NSTableColumn *column = GetColumn(pos)->GetNativeData()->GetNativeColumnPtr();
+    wxDataViewColumnNativeData *nativeData = GetColumn(pos)->GetNativeData();
+    NSTableColumn *column = nativeData->GetNativeColumnPtr();
     UInt32 const noOfColumns = [[m_OutlineView tableColumns] count];
 
     class MaxWidthCalculator
@@ -2338,10 +2376,31 @@ void wxCocoaDataViewControl::FitColumnWidthToContent(unsigned int pos)
     if ( m_expanderWidth == 0 )
         m_expanderWidth = calculator.GetExpanderWidth();
 
-    if ( pos == noOfColumns - 1 )
+    const bool isLast = pos == noOfColumns - 1;
+
+    if ( isLast )
+    {
+        // Note that FitColumnWidthToContent() is called whenever a column is
+        // added, so we might also just temporarily become the last column;
+        // since we cannot know at this time whether we will just temporarily
+        // be the last column, we store our current column width in order to
+        // restore it later in case we suddenly are no longer the last column
+        // because new columns have been added --> we need to restore our
+        // previous width in that case because it must not get lost.
+        nativeData->SetPrevWidth(GetColumn(pos)->GetWidth());
+
         [m_OutlineView sizeLastColumnToFit];
-    else
+    }
+    else if ( GetColumn(pos)->GetWidthVariable() == wxCOL_WIDTH_AUTOSIZE )
+    {
         [column setWidth:calculator.GetMaxWidth() + m_expanderWidth];
+    }
+    else if ( nativeData->GetIsLast() )
+    {
+        [column setWidth:nativeData->GetPrevWidth()];
+    }
+
+    nativeData->SetIsLast(isLast);
 
     if ( !(GetDataViewCtrl()->GetWindowStyle() & wxDV_VARIABLE_LINE_HEIGHT) )
     {

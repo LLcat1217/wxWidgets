@@ -110,6 +110,23 @@ public:
 
 protected:
     /**
+        Helper function setting the correct colours and font.
+
+        This function can be useful in the derived classes Draw()
+        implementation as it takes care of setting the appropriate colours and
+        font for @a dc depending on the global @a grid attributes, cell
+        attributions specified in @a attr and whether @a isSelected is @true.
+
+        Simply call it before doing any drawing in the derived class version to
+        use consistent colours and font for all cells.
+
+        @since 3.1.5
+     */
+    void SetTextColoursAndFont(const wxGrid& grid,
+                               const wxGridCellAttr& attr,
+                               wxDC& dc,
+                               bool isSelected);
+    /**
         The destructor is private because only DecRef() can delete us.
     */
     virtual ~wxGridCellRenderer();
@@ -1857,7 +1874,7 @@ public:
     /**
         Gets an id
     */
-    int  GetId();
+    int GetId() const;
 
     /**
         Set the position after which the insertion/deletion occur
@@ -1867,7 +1884,7 @@ public:
     /**
         Get the position after which the insertion/deletion occur
     */
-    int  GetCommandInt();
+    int GetCommandInt() const;
 
     /**
         Set the number of rows to be inserted/deleted
@@ -1877,7 +1894,7 @@ public:
     /**
         Get the number of rows to be inserted/deleted
     */
-    int  GetCommandInt2();
+    int GetCommandInt2() const;
 };
 
 
@@ -2510,9 +2527,6 @@ public:
 
     /**
         Delete rows from the table.
-
-        Notice that currently deleting a row intersecting a multi-cell (see
-        SetCellSize()) is not supported and will result in a crash.
 
         @param pos
             The first row to delete.
@@ -4450,7 +4464,7 @@ public:
         may still be negative, see GetCellSize(int, int, int *, int *) for
         details.
      */
-    wxSize GetCellSize(const wxGridCellCoords& coords);
+    wxSize GetCellSize(const wxGridCellCoords& coords) const;
 
     //@}
 
@@ -6237,12 +6251,12 @@ public:
         column of the newly selected cell while the previously selected cell
         can be retrieved using wxGrid::GetGridCursorCol().
     */
-    virtual int GetCol();
+    int GetCol() const;
 
     /**
         Position in pixels at which the event occurred.
     */
-    wxPoint GetPosition();
+    wxPoint GetPosition() const;
 
     /**
         Row at which the event occurred.
@@ -6251,7 +6265,7 @@ public:
         of the newly selected cell while the previously selected cell can be
         retrieved using wxGrid::GetGridCursorRow().
     */
-    virtual int GetRow();
+    int GetRow() const;
 
     /**
         Returns @true if the Meta key was down at the time of the event.
@@ -6262,7 +6276,7 @@ public:
         Returns @true if the user is selecting grid cells, or @false if
         deselecting.
     */
-    bool Selecting();
+    bool Selecting() const;
 
     /**
         Returns @true if the Shift key was down at the time of the event.
@@ -6327,12 +6341,12 @@ public:
     /**
         Position in pixels at which the event occurred.
     */
-    wxPoint GetPosition();
+    wxPoint GetPosition() const;
 
     /**
         Row or column at that was resized.
     */
-    int GetRowOrCol();
+    int GetRowOrCol() const;
 
     /**
         Returns @true if the Meta key was down at the time of the event.
@@ -6419,32 +6433,32 @@ public:
     /**
         Top left corner of the rectangular area that was (de)selected.
     */
-    wxGridCellCoords GetBottomRightCoords();
+    wxGridCellCoords GetBottomRightCoords() const;
 
     /**
         Bottom row of the rectangular area that was (de)selected.
     */
-    int GetBottomRow();
+    int GetBottomRow() const;
 
     /**
         Left column of the rectangular area that was (de)selected.
     */
-    int GetLeftCol();
+    int GetLeftCol() const;
 
     /**
         Right column of the rectangular area that was (de)selected.
     */
-    int GetRightCol();
+    int GetRightCol() const;
 
     /**
         Top left corner of the rectangular area that was (de)selected.
     */
-    wxGridCellCoords GetTopLeftCoords();
+    wxGridCellCoords GetTopLeftCoords() const;
 
     /**
         Top row of the rectangular area that was (de)selected.
     */
-    int GetTopRow();
+    int GetTopRow() const;
 
     /**
         Returns @true if the Meta key was down at the time of the event.
@@ -6454,7 +6468,7 @@ public:
     /**
         Returns @true if the area was selected, @false otherwise.
     */
-    bool Selecting();
+    bool Selecting() const;
 
     /**
         Returns @true if the Shift key was down at the time of the event.
@@ -6495,7 +6509,7 @@ public:
     /**
         Returns the column at which the event occurred.
     */
-    int GetCol();
+    int GetCol() const;
 
     /**
         Returns the edit control.
@@ -6512,14 +6526,14 @@ public:
     /**
         Returns the row at which the event occurred.
     */
-    int GetRow();
+    int GetRow() const;
 
     /**
         Returns the edit window.
 
         @since 3.1.3
     */
-    wxWindow* GetWindow();
+    wxWindow* GetWindow() const;
 
     /**
         Sets the column at which the event occurred.

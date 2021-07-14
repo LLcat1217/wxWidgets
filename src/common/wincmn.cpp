@@ -74,11 +74,8 @@
 #include "wx/display.h"
 #include "wx/platinfo.h"
 #include "wx/recguard.h"
+#include "wx/private/rescale.h"
 #include "wx/private/window.h"
-
-#ifdef __WINDOWS__
-    #include "wx/msw/wrapwin.h"
-#endif
 
 // Windows List
 WXDLLIMPEXP_DATA_CORE(wxWindowList) wxTopLevelWindows;
@@ -1000,6 +997,25 @@ wxSize wxWindowBase::WindowToClientSize(const wxSize& size) const
 
     return wxSize(size.x == -1 ? -1 : size.x - diff.x,
                   size.y == -1 ? -1 : size.y - diff.y);
+}
+
+void wxWindowBase::WXSetInitialFittingClientSize(int flags)
+{
+    wxSizer* const sizer = GetSizer();
+    if ( !sizer )
+        return;
+
+    const wxSize
+        size = sizer->ComputeFittingClientSize(static_cast<wxWindow *>(this));
+
+    // It is important to set the min client size before changing the size
+    // itself as the existing size hints could prevent SetClientSize() from
+    // working otherwise.
+    if ( flags & wxSIZE_SET_MIN )
+        SetMinClientSize(size);
+
+    if ( flags & wxSIZE_SET_CURRENT )
+        SetClientSize(size);
 }
 
 void wxWindowBase::SetWindowVariant( wxWindowVariant variant )
@@ -2031,19 +2047,20 @@ public:
 
     // Traverse all the direct children calling OnDo() on them and also all
     // grandchildren, calling OnRecurse() for them.
-    bool DoForAllChildren()
+    bool DoForSelfAndChildren()
     {
+        wxValidator* const validator = m_win->GetValidator();
+        if ( validator && !OnDo(validator) )
+        {
+            return false;
+        }
+
         wxWindowList& children = m_win->GetChildren();
         for ( wxWindowList::iterator i = children.begin();
               i != children.end();
               ++i )
         {
             wxWindow* const child = static_cast<wxWindow*>(*i);
-            wxValidator* const validator = child->GetValidator();
-            if ( validator && !OnDo(validator) )
-            {
-                return false;
-            }
 
             // Notice that validation should never recurse into top level
             // children, e.g. some other dialog which might happen to be
@@ -2102,7 +2119,7 @@ bool wxWindowBase::Validate()
         }
     };
 
-    return ValidateTraverser(this).DoForAllChildren();
+    return ValidateTraverser(this).DoForSelfAndChildren();
 #else // !wxUSE_VALIDATORS
     return true;
 #endif // wxUSE_VALIDATORS/!wxUSE_VALIDATORS
@@ -2140,7 +2157,7 @@ bool wxWindowBase::TransferDataToWindow()
         }
     };
 
-    return DataToWindowTraverser(this).DoForAllChildren();
+    return DataToWindowTraverser(this).DoForSelfAndChildren();
 #else // !wxUSE_VALIDATORS
     return true;
 #endif // wxUSE_VALIDATORS/!wxUSE_VALIDATORS
@@ -2168,7 +2185,7 @@ bool wxWindowBase::TransferDataFromWindow()
         }
     };
 
-    return DataFromWindowTraverser(this).DoForAllChildren();
+    return DataFromWindowTraverser(this).DoForSelfAndChildren();
 #else // !wxUSE_VALIDATORS
     return true;
 #endif // wxUSE_VALIDATORS/!wxUSE_VALIDATORS
@@ -2885,12 +2902,9 @@ wxWindowBase::FromDIP(const wxSize& sz, const wxWindowBase* w)
 {
     const wxSize dpi = GetDPIHelper(w);
 
-    const int baseline = wxDisplay::GetStdPPIValue();
+    const wxSize baseline = wxDisplay::GetStdPPI();
 
-    // Take care to not scale -1 because it has a special meaning of
-    // "unspecified" which should be preserved.
-    return wxSize(sz.x == -1 ? -1 : wxMulDivInt32(sz.x, dpi.x, baseline),
-                  sz.y == -1 ? -1 : wxMulDivInt32(sz.y, dpi.y, baseline));
+    return wxRescaleCoord(sz).From(baseline).To(dpi);
 }
 
 /* static */
@@ -2899,12 +2913,9 @@ wxWindowBase::ToDIP(const wxSize& sz, const wxWindowBase* w)
 {
     const wxSize dpi = GetDPIHelper(w);
 
-    const int baseline = wxDisplay::GetStdPPIValue();
+    const wxSize baseline = wxDisplay::GetStdPPI();
 
-    // Take care to not scale -1 because it has a special meaning of
-    // "unspecified" which should be preserved.
-    return wxSize(sz.x == -1 ? -1 : wxMulDivInt32(sz.x, baseline, dpi.x),
-                  sz.y == -1 ? -1 : wxMulDivInt32(sz.y, baseline, dpi.y));
+    return wxRescaleCoord(sz).From(dpi).To(baseline);
 }
 
 #endif // !wxHAVE_DPI_INDEPENDENT_PIXELS
@@ -2943,28 +2954,14 @@ wxPoint wxWindowBase::ConvertPixelsToDialog(const wxPoint& pt) const
 {
     const wxSize base = GetDlgUnitBase();
 
-    // NB: wxMulDivInt32() is used, because it correctly rounds the result
-
-    wxPoint pt2 = wxDefaultPosition;
-    if (pt.x != wxDefaultCoord)
-        pt2.x = wxMulDivInt32(pt.x, 4, base.x);
-    if (pt.y != wxDefaultCoord)
-        pt2.y = wxMulDivInt32(pt.y, 8, base.y);
-
-    return pt2;
+    return wxRescaleCoord(pt).From(base).To(4, 8);
 }
 
 wxPoint wxWindowBase::ConvertDialogToPixels(const wxPoint& pt) const
 {
     const wxSize base = GetDlgUnitBase();
 
-    wxPoint pt2 = wxDefaultPosition;
-    if (pt.x != wxDefaultCoord)
-        pt2.x = wxMulDivInt32(pt.x, base.x, 4);
-    if (pt.y != wxDefaultCoord)
-        pt2.y = wxMulDivInt32(pt.y, base.y, 8);
-
-    return pt2;
+    return wxRescaleCoord(pt).From(4, 8).To(base);
 }
 
 // ----------------------------------------------------------------------------
@@ -3406,9 +3403,11 @@ static void DoNotifyWindowAboutCaptureLost(wxWindow *win)
 void wxWindowBase::NotifyCaptureLost()
 {
     // don't do anything if capture lost was expected, i.e. resulted from
-    // a wx call to ReleaseMouse or CaptureMouse:
-    wxRecursionGuard guard(wxMouseCapture::changing);
-    if ( guard.IsInside() )
+    // a wx call to ReleaseMouse or CaptureMouse (but note that we must not
+    // change the "changing" flag here as the user code is expected to call
+    // ReleaseMouse() from its wxMouseCaptureLostEvent handler and this
+    // shouldn't assert because the capture is already "changing")
+    if ( wxMouseCapture::changing )
         return;
 
     // if the capture was lost unexpectedly, notify every window that has

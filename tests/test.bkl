@@ -34,6 +34,7 @@
             arrays/arrays.cpp
             base64/base64.cpp
             cmdline/cmdlinetest.cpp
+            config/config.cpp
             config/fileconf.cpp
             config/regconf.cpp
             datetime/datetimetest.cpp
@@ -183,9 +184,13 @@
             graphics/boundingbox.cpp
             graphics/clippingbox.cpp
             graphics/coords.cpp
+            graphics/graphbitmap.cpp
             graphics/graphmatrix.cpp
             graphics/graphpath.cpp
             graphics/imagelist.cpp
+            <!--
+                Duplicate this file here to compile a GUI test in it too.
+             -->
             config/config.cpp
             controls/auitest.cpp
             controls/bitmapcomboboxtest.cpp
@@ -379,6 +384,16 @@
 
             wx.png
             wx.ico
+
+            toucan.png
+            toucan_hue_0.538.png
+            toucan_sat_-0.41.png
+            toucan_bright_-0.259.png
+            toucan_hsv_0.538_-0.41_-0.259.png
+            toucan_light_46.png
+            toucan_dis_240.png
+            toucan_grey.png
+            toucan_mono_255_255_255.png
         </files>
     </wx-data>
 

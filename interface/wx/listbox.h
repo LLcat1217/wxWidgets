@@ -195,7 +195,7 @@ public:
         Fill an array of ints with the positions of the currently selected items.
 
         @param selections
-            A reference to an wxArrayInt instance that is used to store the result of
+            A reference to a wxArrayInt instance that is used to store the result of
             the query.
 
         @return The number of selections.
@@ -350,7 +350,7 @@ public:
 
         @since 3.1.4
      */
-    virtual void MSWSetTabStops(const wxVector<int>& tabStops);
+    virtual bool MSWSetTabStops(const wxVector<int>& tabStops);
 
     // NOTE: Phoenix needs to see the implementation of pure virtuals so it
     // knows that this class is not abstract.

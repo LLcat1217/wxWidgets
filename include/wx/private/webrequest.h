@@ -106,6 +106,13 @@ public:
 
     wxEvtHandler* GetHandler() const { return m_handler; }
 
+    // Called to notify about the state change in the main thread by SetState()
+    // (which can itself be called from a different one).
+    //
+    // It also releases a reference added when switching to the active state by
+    // SetState() when leaving it.
+    //
+    // TODO-C++11: make private when we don't need StateEventProcessor any more.
     void ProcessStateEvent(wxWebRequest::State state, const wxString& failMsg);
 
 protected:
@@ -187,6 +194,10 @@ protected:
 
     void ReportDataReceived(size_t sizeReceived);
 
+    // This function can optionally be called to preallocate the read buffer,
+    // if the total amount of data to be downloaded is known in advance.
+    void PreAllocBuffer(size_t sizeNeeded);
+
 private:
     // Called by wxWebRequestImpl only.
     friend class wxWebRequestImpl;
@@ -207,6 +218,8 @@ class wxWebSessionFactory
 {
 public:
     virtual wxWebSessionImpl* Create() = 0;
+
+    virtual bool Initialize() { return true; }
 
     virtual ~wxWebSessionFactory() { }
 };

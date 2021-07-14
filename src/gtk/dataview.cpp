@@ -244,6 +244,13 @@ public:
 
     bool IsSorted() const                       { return m_sort_column >= 0; }
 
+    // Freezing sort temporarily disables sorting when inserting the items into
+    // the tree as an optimization when inserting many items. Sort must be
+    // thawed, by calling FreezeSort(false), before inserting the last item to
+    // ensure that the items still end up in the right order.
+    void FreezeSort(bool freeze)                { m_sort_frozen = freeze; }
+    bool IsSortFrozen() const                   { return m_sort_frozen; }
+
     // Should we be sorted either because we have a configured sort column or
     // because we have a default sort order?
     bool ShouldBeSorted() const
@@ -286,6 +293,7 @@ private:
     GtkSortType           m_sort_order;
     wxDataViewColumn     *m_dataview_sort_column;
     int                   m_sort_column;
+    bool                  m_sort_frozen;
 
     GtkTargetEntry        m_dragSourceTargetEntry;
     wxCharBuffer          m_dragSourceTargetEntryTarget;
@@ -352,7 +360,7 @@ public:
 
             m_children.Add( id );
 
-            if (m_internal->ShouldBeSorted())
+            if ( !m_internal->IsSortFrozen() && m_internal->ShouldBeSorted() )
             {
                 gs_internal = m_internal;
                 m_children.Sort( &wxGtkTreeModelChildCmp );
@@ -399,7 +407,7 @@ public:
         {
             m_children.Insert( id, pos );
 
-            if (m_internal->ShouldBeSorted())
+            if ( !m_internal->IsSortFrozen() && m_internal->ShouldBeSorted() )
             {
                 gs_internal = m_internal;
                 m_children.Sort( &wxGtkTreeModelChildCmp );
@@ -450,6 +458,8 @@ public:
 
     wxDataViewItem &GetItem() { return m_item; }
     wxDataViewCtrlInternal *GetInternal() { return m_internal; }
+
+    void FreezeSort(bool freeze) { m_internal->FreezeSort(freeze); }
 
     void Resort();
 
@@ -2552,8 +2562,16 @@ wxDataViewBitmapRenderer::wxDataViewBitmapRenderer( const wxString &varianttype,
 bool wxDataViewBitmapRenderer::SetValue( const wxVariant &value )
 {
     wxBitmap bitmap;
-    if (value.GetType() == wxS("wxBitmap") || value.GetType() == wxS("wxIcon"))
+    if (value.GetType() == wxS("wxBitmap"))
+    {
         bitmap << value;
+    }
+    else if (value.GetType() == wxS("wxIcon"))
+    {
+        wxIcon icon;
+        icon << value;
+        bitmap.CopyFromIcon(icon);
+    }
 
 #ifdef __WXGTK3__
     WX_CELL_RENDERER_PIXBUF(m_renderer)->Set(bitmap);
@@ -3624,6 +3642,7 @@ wxDataViewCtrlInternal::wxDataViewCtrlInternal( wxDataViewCtrl *owner, wxDataVie
     m_root = NULL;
     m_sort_order = GTK_SORT_ASCENDING;
     m_sort_column = -1;
+    m_sort_frozen = false;
     m_dataview_sort_column = NULL;
 
     m_dragDataObject = NULL;
@@ -3719,10 +3738,20 @@ void wxDataViewCtrlInternal::BuildBranch( wxGtkTreeModelNode *node )
         wxDataViewItemArray children;
         unsigned int count = m_wx_model->GetChildren( node->GetItem(), children );
 
+        // Avoid sorting children multiple times when inserting many nodes,
+        // this results in O(N^2*log(N)) complexity.
+        if ( count > 1 )
+            node->FreezeSort(true);
+
         unsigned int pos;
         for (pos = 0; pos < count; pos++)
         {
             wxDataViewItem child = children[pos];
+
+            // Rr-enable sorting before inserting the last child if we had
+            // disabled it above.
+            if ( pos == count - 1 && pos != 0 )
+                node->FreezeSort(false);
 
             if (m_wx_model->IsContainer( child ))
                 node->AddNode( new wxGtkTreeModelNode( node, child, this ) );
@@ -4641,13 +4670,22 @@ gtk_dataview_button_press_callback( GtkWidget *WXUNUSED(widget),
 {
     if ((gdk_event->button == 3) && (gdk_event->type == GDK_BUTTON_PRESS))
     {
+        GtkTreeView* const treeview = GTK_TREE_VIEW(dv->GtkGetTreeView());
+
+        // Surprisingly, we can get the events not only from the "bin" window,
+        // containing the items, but also from the window containing the column
+        // headers, and we're not interested in them here, we already generate
+        // wxEVT_DATAVIEW_COLUMN_HEADER_RIGHT_CLICK for them, so just ignore.
+        if (gdk_event->window != gtk_tree_view_get_bin_window(treeview))
+            return FALSE;
+
         wxGtkTreePath path;
         GtkTreeViewColumn *column = NULL;
         gint cell_x = 0;
         gint cell_y = 0;
         gtk_tree_view_get_path_at_pos
         (
-            GTK_TREE_VIEW(dv->GtkGetTreeView()),
+            treeview,
             (int) gdk_event->x, (int) gdk_event->y,
             path.ByRef(),
             &column,
@@ -4660,7 +4698,7 @@ gtk_dataview_button_press_callback( GtkWidget *WXUNUSED(widget),
         // because it could be a part of multi-item selection.
         if ( path )
         {
-            GtkTreeSelection *selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(dv->GtkGetTreeView()));
+            GtkTreeSelection *selection = gtk_tree_view_get_selection(treeview);
             if ( !gtk_tree_selection_path_is_selected(selection, path) )
             {
                 gtk_tree_selection_unselect_all(selection);

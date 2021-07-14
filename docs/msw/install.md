@@ -34,26 +34,6 @@ variable containing the full path to this directory. While this is not
 actually required, this makes using the library more convenient and
 this environment variable is used in the examples below.
 
-Upgrading Existing Git Checkout         {#msw_update_setup_h}
--------------------------------
-
-If you checked your sources from version control repository and didn't
-obtain them from a release file, you may need to update your
-`include/wx/msw/setup.h` file to add any new options from
-`include/wx/msw/setup0.h` to it. If you hadn't edited `setup.h` file
-manually, you can just delete it to force recreating it by copying
-`setup0.h` to `setup.h` during the next build. If you forget to do it,
-you may get errors during the build due to new options being
-undefined.
-
-If you have no intention of ever modifying `setup.h`, you may avoid this
-problem entirely by creating a symbolic link to `setup0.h` before
-building, e.g. using mklink, from an admin command prompt:
-
-    cd %WXWIN%\include\wx\msw\
-    mklink setup.h setup0.h
-
-
 
 Building wxWidgets                     {#msw_build}
 ==================
@@ -104,11 +84,11 @@ Microsoft Visual C++ Compilation       {#msw_build_msvs}
 
 * From the IDE using the provided project files:
 
-Ready to use project files are provided for VC++ versions 7, 8, 9,
-10, 11, 12, 14, 15 and 16 (also known as MSVS 2003, 2005, 2008, 2010, 2012,
+Ready to use project files are provided for VC++ versions 8, 9,
+10, 11, 12, 14, 15 and 16 (also known as MSVS 2005, 2008, 2010, 2012,
 2013, 2015, 2017 and 2019 respectively).
 
-Simply open `wx_vcN.sln` (for N=7, 8, 9, 10, 11, 12, 14, 15 or 16) file,
+Simply open `wx_vcN.sln` (for N=8, 9, 10, 11, 12, 14, 15 or 16) file,
 select the appropriate configuration (Debug or Release, static or DLL)
 and build the solution. Notice that when building a DLL configuration,
 you may need to perform the build several times because the projects

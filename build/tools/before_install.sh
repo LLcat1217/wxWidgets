@@ -1,15 +1,45 @@
 #!/bin/sh
 #
-# This script is used by Travis CI to install the dependencies before building
-# wxWidgets but can also be run by hand if necessary but currently it only
-# works for Ubuntu versions used by Travis builds.
+# This script is used by both GitHub and Travis CI to install the dependencies
+# before building wxWidgets but can also be run by hand if necessary (but
+# currently it only works for Ubuntu versions used by the CI builds).
+
+set -e
 
 SUDO=sudo
 
 case $(uname -s) in
     Linux)
         if [ -f /etc/apt/sources.list ]; then
-            $SUDO apt-get update
+            # Show information about the repositories and priorities used.
+            echo 'APT sources used:'
+            $SUDO grep --no-messages '^[^#]' /etc/apt/sources.list /etc/apt/sources.list.d/* || true
+            echo '--- End of APT files dump ---'
+
+            run_apt() {
+                echo "Running apt-get $@"
+
+                # Disable some (but not all) output.
+                $SUDO apt-get -q -o=Dpkg::Use-Pty=0 "$@"
+
+            }
+
+            if [ "$wxUSE_ASAN" = 1 ]; then
+                codename=$(lsb_release --codename --short)
+                # Enable the `-dbgsym` repositories.
+                echo "deb http://ddebs.ubuntu.com ${codename} main restricted universe multiverse
+                deb http://ddebs.ubuntu.com ${codename}-updates main restricted universe multiverse" | \
+                $SUDO tee --append /etc/apt/sources.list.d/ddebs.list >/dev/null
+
+                # Import the debug symbol archive signing key from the Ubuntu server.
+                # Note that this command works only on Ubuntu 18.04 LTS and newer.
+                run_apt install -y ubuntu-dbgsym-keyring
+
+                # Install the symbols to allow LSAN suppression list to work.
+                dbgsym_pkgs='libfontconfig1-dbgsym libglib2.0-0-dbgsym libgtk-3-0-dbgsym libatk-bridge2.0-0-dbgsym'
+            fi
+
+            run_apt update || echo 'Failed to update packages, but continuing nevertheless.'
 
             case "$wxCONFIGURE_FLAGS" in
                 *--with-directfb*) libtoolkit_dev='libdirectfb-dev'         ;;
@@ -37,31 +67,28 @@ case $(uname -s) in
                             libglu1-mesa-dev"
             esac
 
+            pkg_install="$pkg_install $libtoolkit_dev gdb"
+
             extra_deps="$extra_deps libcurl4-openssl-dev libsecret-1-dev libnotify-dev"
             for pkg in $extra_deps; do
                 if $(apt-cache pkgnames | grep -q $pkg) ; then
                     pkg_install="$pkg_install $pkg"
+                else
+                    echo "Not installing non-existent package $pkg"
                 fi
             done
 
-            $SUDO apt-get install -y $libtoolkit_dev $pkg_install
+            if ! run_apt install -y $pkg_install $dbgsym_pkgs; then
+                if [ -z "$dbgsym_pkgs" ]; then
+                    exit $?
+                fi
 
-            if [ "$wxUSE_ASAN" = 1 ]; then
-                codename=$(lsb_release --codename --short)
-                # Enable the `-dbgsym` repositories.
-                echo "deb http://ddebs.ubuntu.com ${codename} main restricted universe multiverse
-                deb http://ddebs.ubuntu.com ${codename}-updates main restricted universe multiverse
-                deb http://ddebs.ubuntu.com ${codename}-proposed main restricted universe multiverse" | \
-                $SUDO tee --append /etc/apt/sources.list.d/ddebs.list
-
-                # Import the debug symbol archive signing key from the Ubuntu server.
-                # Note that this command works only on Ubuntu 18.04 LTS and newer.
-                $SUDO apt-get install -y ubuntu-dbgsym-keyring
-
-                $SUDO apt-get update
-
-                # Install the symbols to allow LSAN suppression list to work.
-                $SUDO apt-get install -y libfontconfig1-dbgsym libglib2.0-0-dbgsym libgtk-3-0-dbgsym libatk-bridge2.0-0-dbgsym
+                # Retry without dbgsym packages that currently fail to install
+                # under Ubuntu Focal (20.04).
+                echo 'Installing with dbgsym packages failed, retrying without...'
+                run_apt install -y $pkg_install
+            else
+                touch wx_dbgsym_available
             fi
         fi
         ;;

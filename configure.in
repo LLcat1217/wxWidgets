@@ -14,7 +14,7 @@ dnl ---------------------------------------------------------------------------
 dnl initialization
 dnl ---------------------------------------------------------------------------
 
-AC_INIT([wxWidgets], [3.1.5], [wx-dev@googlegroups.com])
+AC_INIT([wxWidgets], [3.1.6], [wx-dev@googlegroups.com])
 
 dnl the file passed to AC_CONFIG_SRCDIR should be specific to our package
 AC_CONFIG_SRCDIR([wx-config.in])
@@ -40,7 +40,7 @@ dnl wx_release_number += 1
 
 wx_major_version_number=3
 wx_minor_version_number=1
-wx_release_number=5
+wx_release_number=6
 wx_subrelease_number=0
 
 WX_RELEASE=$wx_major_version_number.$wx_minor_version_number
@@ -343,7 +343,6 @@ DEFAULT_wxUSE_CAIRO=no
 
 dnl features disabled by default
 DEFAULT_wxUSE_ACCESSIBILITY=no
-DEFAULT_wxUSE_IPV6=no
 DEFAULT_wxUSE_UNICODE_UTF8=no
 DEFAULT_wxUSE_UNICODE_UTF8_LOCALE=no
 
@@ -2002,28 +2001,6 @@ if test "$wxUSE_STD_IOSTREAM" = "yes"; then
 fi
 
 if test "$wxUSE_STL" = "yes"; then
-    dnl check for basic STL functionality
-    AC_CACHE_CHECK([for basic STL functionality],
-        wx_cv_lib_stl,
-        [AC_TRY_COMPILE([#include <string>
-            #include <functional>
-            #include <algorithm>
-            #include <vector>
-            #include <list>],
-            [std::vector<int> moo;
-             std::list<int> foo;
-             std::vector<int>::iterator it =
-                 std::find_if(moo.begin(), moo.end(),
-                              std::bind2nd(std::less<int>(), 3));],
-            wx_cv_lib_stl=yes,
-            wx_cv_lib_stl=no
-        )]
-    )
-
-    if test "$wx_cv_lib_stl" != yes; then
-         AC_MSG_ERROR([Can't use --enable-stl as basic STL functionality is missing])
-    fi
-
     dnl check for compliant std::string::compare
     AC_CACHE_CHECK([for compliant std::string::compare],
         wx_cv_func_stdstring_compare,
@@ -2813,7 +2790,7 @@ if test "$wxUSE_LIBTIFF" != "no" ; then
             AC_MSG_RESULT([yes])
         fi
 
-        dnl Disable the use of lzma, jbig, webp and zstd in built-in libtiff
+        dnl Disable the use of the external libraries in the built-in libtiff
         dnl explicitly, as otherwise we'd depend on the system libraries, which
         dnl is typically undesirable when using builtin libraries. If we use
         dnl lzma ourselves, keep it enabled (note that we must still define the
@@ -2837,6 +2814,7 @@ if test "$wxUSE_LIBTIFF" != "no" ; then
 
         AX_SUBDIRS_CONFIGURE([src/tiff],
             [[--disable-jbig],
+             [--disable-libdeflate],
              [--disable-webp],
              [--disable-zstd],
              [$tiff_lzma_option],
@@ -2972,7 +2950,7 @@ if test "$USE_WIN32" = 1 ; then
     ],
     [ ])
 
-    LIBS="$LIBS -luxtheme -lwinspool -lwinmm -lshell32 -lshlwapi -lcomctl32 -lcomdlg32 -ladvapi32 -lversion -lwsock32 -lgdi32"
+    LIBS="$LIBS -luxtheme -lwinspool -lwinmm -lshell32 -lshlwapi -lcomctl32 -lcomdlg32 -ladvapi32 -lversion -lws2_32 -lgdi32"
     case "${host}" in
         x86_64-*-mingw* )
             dnl we need to define this to embed the manifest for correct
@@ -5462,7 +5440,7 @@ if test "$GCC" = "yes" ; then
         WXCONFIG_CXXFLAGS="$WXCONFIG_CXXFLAGS -fno-exceptions"
     fi
     if test "$wxUSE_PERMISSIVE" = "yes" ; then
-        WXCONFIG_CFLAGS="$WXCONFIG_CFLAGS -fpermissive"
+        WXCONFIG_CXXFLAGS="$WXCONFIG_CXXFLAGS -fpermissive"
     fi
 
     dnl Ian Brown <ian.brown@printsoft.de> reports that versions of gcc before
@@ -8028,9 +8006,9 @@ EXTRA_FRAMEWORKS=
 if test "$wxUSE_MAC" = 1 ; then
     if test "$USE_DARWIN" = 1; then
         if test "$wxUSE_OSX_IPHONE" = 1; then
-            EXTRA_FRAMEWORKS="-framework IOKit -framework UIKit -framework CFNetwork -framework AudioToolbox -framework CoreFoundation -framework CoreGraphics -framework OpenGLES -framework Foundation -framework QuartzCore -framework CoreText"
+            EXTRA_FRAMEWORKS="-framework IOKit -framework UIKit -framework CFNetwork -framework AudioToolbox -framework CoreFoundation -framework CoreGraphics -framework OpenGLES -framework Foundation -framework QuartzCore -framework GLKit -framework CoreText"
         else
-            EXTRA_FRAMEWORKS="-framework IOKit -framework Carbon -framework Cocoa -framework AudioToolbox -framework System -framework OpenGL"
+            EXTRA_FRAMEWORKS="-framework IOKit -framework Carbon -framework Cocoa -framework QuartzCore -framework AudioToolbox -framework System -framework OpenGL"
 
             dnl The case of QuickTime framework is special: with Cocoa, we only
             dnl need it in 32 bit builds and not in 64 bit and, moreover,

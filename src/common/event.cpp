@@ -51,6 +51,10 @@
     wxDEFINE_SCOPED_PTR(wxEvent, wxEventPtr)
 #endif // wxUSE_BASE
 
+#if wxUSE_GUI
+    #include "wx/private/rescale.h"
+#endif
+
 // ----------------------------------------------------------------------------
 // wxWin macros
 // ----------------------------------------------------------------------------
@@ -80,6 +84,7 @@
     wxIMPLEMENT_DYNAMIC_CLASS(wxShowEvent, wxEvent);
     wxIMPLEMENT_DYNAMIC_CLASS(wxMaximizeEvent, wxEvent);
     wxIMPLEMENT_DYNAMIC_CLASS(wxIconizeEvent, wxEvent);
+    wxIMPLEMENT_DYNAMIC_CLASS(wxFullScreenEvent, wxEvent);
     wxIMPLEMENT_DYNAMIC_CLASS(wxMenuEvent, wxEvent);
     wxIMPLEMENT_DYNAMIC_CLASS(wxJoystickEvent, wxEvent);
     wxIMPLEMENT_DYNAMIC_CLASS(wxDropFilesEvent, wxEvent);
@@ -288,6 +293,7 @@ wxDEFINE_EVENT( wxEVT_DESTROY, wxWindowDestroyEvent );
 wxDEFINE_EVENT( wxEVT_SHOW, wxShowEvent );
 wxDEFINE_EVENT( wxEVT_ICONIZE, wxIconizeEvent );
 wxDEFINE_EVENT( wxEVT_MAXIMIZE, wxMaximizeEvent );
+wxDEFINE_EVENT( wxEVT_FULLSCREEN, wxFullScreenEvent );
 wxDEFINE_EVENT( wxEVT_MOUSE_CAPTURE_CHANGED, wxMouseCaptureChangedEvent );
 wxDEFINE_EVENT( wxEVT_MOUSE_CAPTURE_LOST, wxMouseCaptureLostEvent );
 wxDEFINE_EVENT( wxEVT_PAINT, wxPaintEvent );
@@ -929,6 +935,15 @@ wxHelpEvent::Origin wxHelpEvent::GuessOrigin(Origin origin)
     }
 
     return origin;
+}
+
+// ----------------------------------------------------------------------------
+// wxDPIChangedEvent
+// ----------------------------------------------------------------------------
+
+wxSize wxDPIChangedEvent::Scale(wxSize sz) const
+{
+    return wxRescaleCoord(sz).From(m_oldDPI).To(m_newDPI);
 }
 
 #endif // wxUSE_GUI
@@ -1613,7 +1628,6 @@ bool wxEvtHandler::TryHereOnly(wxEvent& event)
     if ( GetEventHashTable().HandleEvent(event, this) )
         return true;
 
-#ifdef wxHAS_CALL_AFTER
     // There is an implicit entry for async method calls processing in every
     // event handler:
     if ( event.GetEventType() == wxEVT_ASYNC_METHOD_CALL &&
@@ -1622,7 +1636,6 @@ bool wxEvtHandler::TryHereOnly(wxEvent& event)
         static_cast<wxAsyncMethodCallEvent&>(event).Execute();
         return true;
     }
-#endif // wxHAS_CALL_AFTER
 
     // We don't have a handler for this event.
     return false;

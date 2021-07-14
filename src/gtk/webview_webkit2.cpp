@@ -31,6 +31,37 @@
 #include <JavaScriptCore/JSValueRef.h>
 #include <JavaScriptCore/JSStringRef.h>
 
+// Helper function to get string from Webkit JS result
+bool wxGetStringFromJSResult(WebKitJavascriptResult* js_result, wxString* output)
+{
+    JSGlobalContextRef context = webkit_javascript_result_get_global_context(js_result);
+    JSValueRef value = webkit_javascript_result_get_value(js_result);
+
+    JSValueRef exception = NULL;
+    wxJSStringRef js_value
+                  (
+                   JSValueIsObject(context, value)
+                       ? JSValueCreateJSONString(context, value, 0, &exception)
+                       : JSValueToStringCopy(context, value, &exception)
+                  );
+
+    if ( exception )
+    {
+        if ( output )
+        {
+            wxJSStringRef ex_value(JSValueToStringCopy(context, exception, NULL));
+            *output = ex_value.ToWxString();
+        }
+
+        return false;
+    }
+
+    if ( output != NULL )
+        *output = js_value.ToWxString();
+
+    return true;
+}
+
 // ----------------------------------------------------------------------------
 // GTK callbacks
 // ----------------------------------------------------------------------------
@@ -53,6 +84,7 @@ wxgtk_webview_webkit_load_changed(GtkWidget *,
         wxWebViewEvent event(wxEVT_WEBVIEW_LOADED,
                              webKitCtrl->GetId(),
                              url, target);
+        event.SetEventObject(webKitCtrl);
 
         webKitCtrl->HandleWindowEvent(event);
     }
@@ -62,6 +94,7 @@ wxgtk_webview_webkit_load_changed(GtkWidget *,
         wxWebViewEvent event(wxEVT_WEBVIEW_NAVIGATED,
                              webKitCtrl->GetId(),
                              url, target);
+        event.SetEventObject(webKitCtrl);
 
         webKitCtrl->HandleWindowEvent(event);
     }
@@ -87,6 +120,7 @@ wxgtk_webview_webkit_navigation(WebKitWebView *,
                              webKitCtrl->GetId(),
                              wxString(uri, wxConvUTF8),
                              target);
+        event.SetEventObject(webKitCtrl);
 
         webKitCtrl->HandleWindowEvent(event);
 
@@ -100,6 +134,7 @@ wxgtk_webview_webkit_navigation(WebKitWebView *,
                          webKitCtrl->GetId(),
                          wxString( uri, wxConvUTF8 ),
                          target);
+    event.SetEventObject(webKitCtrl);
 
     webKitCtrl->HandleWindowEvent(event);
 
@@ -223,8 +258,10 @@ wxgtk_webview_webkit_load_failed(WebKitWebView *,
     wxWebViewEvent event(wxEVT_WEBVIEW_ERROR,
                          webKitWindow->GetId(),
                          uri, "");
+    event.SetEventObject(webKitWindow);
     event.SetString(description);
     event.SetInt(type);
+
 
     webKitWindow->HandleWindowEvent(event);
 
@@ -245,12 +282,58 @@ wxgtk_webview_webkit_new_window(WebKitPolicyDecision *decision,
                                        webKitCtrl->GetId(),
                                        wxString( uri, wxConvUTF8 ),
                                        target);
+    event.SetEventObject(webKitCtrl);
 
     webKitCtrl->HandleWindowEvent(event);
 
     //We always want the user to handle this themselves
     webkit_policy_decision_ignore(decision);
     return TRUE;
+}
+
+static gboolean
+wxgtk_webview_webkit_enter_fullscreen(WebKitWebView *WXUNUSED(web_view),
+                                      wxWebViewWebKit *webKitCtrl)
+{
+    wxWebViewEvent event(wxEVT_WEBVIEW_FULLSCREEN_CHANGED,
+                                       webKitCtrl->GetId(),
+                                       wxString(),
+                                       wxString());
+    event.SetEventObject(webKitCtrl);
+    event.SetInt(1);
+    webKitCtrl->HandleWindowEvent(event);
+
+    return FALSE;
+}
+
+static gboolean
+wxgtk_webview_webkit_leave_fullscreen(WebKitWebView *WXUNUSED(web_view),
+                                      wxWebViewWebKit *webKitCtrl)
+{
+    wxWebViewEvent event(wxEVT_WEBVIEW_FULLSCREEN_CHANGED,
+                                       webKitCtrl->GetId(),
+                                       wxString(),
+                                       wxString());
+    event.SetEventObject(webKitCtrl);
+    event.SetInt(0);
+    webKitCtrl->HandleWindowEvent(event);
+
+    return FALSE;
+}
+
+static void
+wxgtk_webview_webkit_script_message_received(WebKitUserContentManager *WXUNUSED(content_manager),
+                                             WebKitJavascriptResult *js_result,
+                                             wxWebViewWebKit *webKitCtrl)
+{
+    wxWebViewEvent event(wxEVT_WEBVIEW_SCRIPT_MESSAGE_RECEIVED,
+                         webKitCtrl->GetId(),
+                         webKitCtrl->GetCurrentURL(),
+                         "");
+    wxString msgStr;
+    if (wxGetStringFromJSResult(js_result, &msgStr))
+        event.SetString(msgStr);
+    webKitCtrl->HandleWindowEvent(event);
 }
 
 static gboolean
@@ -282,6 +365,7 @@ wxgtk_webview_webkit_title_changed(GtkWidget* widget,
                          webKitCtrl->GetId(),
                          webKitCtrl->GetCurrentURL(),
                          "");
+    event.SetEventObject(webKitCtrl);
     event.SetString(wxString(title, wxConvUTF8));
 
     webKitCtrl->HandleWindowEvent(event);
@@ -508,6 +592,16 @@ wxgtk_authorize_authenticated_peer_cb(GDBusAuthObserver *,
 } // extern "C"
 
 //-----------------------------------------------------------------------------
+// wxWebViewFactoryWebKit
+//-----------------------------------------------------------------------------
+
+wxVersionInfo wxWebViewFactoryWebKit::GetVersionInfo()
+{
+    return wxVersionInfo("webkit2", webkit_get_major_version(),
+        webkit_get_minor_version(), webkit_get_micro_version());
+}
+
+//-----------------------------------------------------------------------------
 // wxWebViewWebKit
 //-----------------------------------------------------------------------------
 
@@ -557,6 +651,9 @@ bool wxWebViewWebKit::Create(wxWindow *parent,
     GTKCreateScrolledWindowWith(GTK_WIDGET(m_web_view));
     g_object_ref(m_widget);
 
+    if (!m_customUserAgent.empty())
+        SetUserAgent(m_customUserAgent);
+
     g_signal_connect(m_web_view, "decide-policy",
                      G_CALLBACK(wxgtk_webview_webkit_decide_policy),
                      this);
@@ -572,6 +669,12 @@ bool wxWebViewWebKit::Create(wxWindow *parent,
 
     g_signal_connect(m_web_view, "create",
                      G_CALLBACK(wxgtk_webview_webkit_create_webview), this);
+
+    g_signal_connect(m_web_view, "enter-fullscreen",
+                     G_CALLBACK(wxgtk_webview_webkit_enter_fullscreen), this);
+
+    g_signal_connect(m_web_view, "leave-fullscreen",
+                     G_CALLBACK(wxgtk_webview_webkit_leave_fullscreen), this);
 
     WebKitFindController* findctrl = webkit_web_view_get_find_controller(m_web_view);
     g_signal_connect(findctrl, "counted-matches",
@@ -642,6 +745,30 @@ void wxWebViewWebKit::SetWebkitZoom(float level)
 float wxWebViewWebKit::GetWebkitZoom() const
 {
     return webkit_web_view_get_zoom_level(m_web_view);
+}
+
+void wxWebViewWebKit::EnableAccessToDevTools(bool enable)
+{
+    WebKitSettings* settings = webkit_web_view_get_settings(m_web_view);
+    webkit_settings_set_enable_developer_extras(settings, enable);
+}
+
+bool wxWebViewWebKit::IsAccessToDevToolsEnabled() const
+{
+    WebKitSettings* settings = webkit_web_view_get_settings(m_web_view);
+    return webkit_settings_get_enable_developer_extras(settings);
+}
+
+bool wxWebViewWebKit::SetUserAgent(const wxString& userAgent)
+{
+    if (m_web_view)
+    {
+        WebKitSettings* settings = webkit_web_view_get_settings(m_web_view);
+        webkit_settings_set_user_agent(settings, userAgent.utf8_str());
+    }
+    else
+        m_customUserAgent = userAgent;
+    return true;
 }
 
 void wxWebViewWebKit::Stop()
@@ -899,63 +1026,9 @@ wxString wxWebViewWebKit::GetPageSource() const
 }
 
 
-wxWebViewZoom wxWebViewWebKit::GetZoom() const
-{
-    float zoom = GetWebkitZoom();
-
-    // arbitrary way to map float zoom to our common zoom enum
-    if (zoom <= 0.65f)
-    {
-        return wxWEBVIEW_ZOOM_TINY;
-    }
-    if (zoom <= 0.90f)
-    {
-        return wxWEBVIEW_ZOOM_SMALL;
-    }
-    if (zoom <= 1.15f)
-    {
-        return wxWEBVIEW_ZOOM_MEDIUM;
-    }
-    if (zoom <= 1.45f)
-    {
-        return wxWEBVIEW_ZOOM_LARGE;
-    }
-    return wxWEBVIEW_ZOOM_LARGEST;
-}
-
 float wxWebViewWebKit::GetZoomFactor() const
 {
     return GetWebkitZoom();
-}
-
-void wxWebViewWebKit::SetZoom(wxWebViewZoom zoom)
-{
-    // arbitrary way to map our common zoom enum to float zoom
-    switch (zoom)
-    {
-        case wxWEBVIEW_ZOOM_TINY:
-            SetWebkitZoom(0.6f);
-            break;
-
-        case wxWEBVIEW_ZOOM_SMALL:
-            SetWebkitZoom(0.8f);
-            break;
-
-        case wxWEBVIEW_ZOOM_MEDIUM:
-            SetWebkitZoom(1.0f);
-            break;
-
-        case wxWEBVIEW_ZOOM_LARGE:
-            SetWebkitZoom(1.3);
-            break;
-
-        case wxWEBVIEW_ZOOM_LARGEST:
-            SetWebkitZoom(1.6);
-            break;
-
-        default:
-            wxFAIL;
-    }
 }
 
 void wxWebViewWebKit::SetZoomFactor(float zoom)
@@ -1174,7 +1247,7 @@ static void wxgtk_run_javascript_cb(GObject *,
 } // extern "C"
 
 // Run the given script synchronously and return its result in output.
-bool wxWebViewWebKit::RunScriptSync(const wxString& javascript, wxString* output)
+bool wxWebViewWebKit::RunScriptSync(const wxString& javascript, wxString* output) const
 {
     GAsyncResult *result = NULL;
     webkit_web_view_run_javascript(m_web_view,
@@ -1209,35 +1282,10 @@ bool wxWebViewWebKit::RunScriptSync(const wxString& javascript, wxString* output
         return false;
     }
 
-    JSGlobalContextRef context = webkit_javascript_result_get_global_context(js_result);
-    JSValueRef value = webkit_javascript_result_get_value(js_result);
-
-    JSValueRef exception = NULL;
-    wxJSStringRef js_value
-                  (
-                   JSValueIsObject(context, value)
-                       ? JSValueCreateJSONString(context, value, 0, &exception)
-                       : JSValueToStringCopy(context, value, &exception)
-                  );
-
-    if ( exception )
-    {
-        if ( output )
-        {
-            wxJSStringRef ex_value(JSValueToStringCopy(context, exception, NULL));
-            *output = ex_value.ToWxString();
-        }
-
-        return false;
-    }
-
-    if ( output != NULL )
-        *output = js_value.ToWxString();
-
-    return true;
+    return wxGetStringFromJSResult(js_result, output);
 }
 
-bool wxWebViewWebKit::RunScript(const wxString& javascript, wxString* output)
+bool wxWebViewWebKit::RunScript(const wxString& javascript, wxString* output) const
 {
     wxJSScriptWrapper wrapJS(javascript, &m_runScriptCount);
 
@@ -1266,6 +1314,57 @@ bool wxWebViewWebKit::RunScript(const wxString& javascript, wxString* output)
     return true;
 }
 
+bool wxWebViewWebKit::AddScriptMessageHandler(const wxString& name)
+{
+    if (!m_web_view)
+        return false;
+
+    WebKitUserContentManager *ucm = webkit_web_view_get_user_content_manager(m_web_view);
+    g_signal_connect(ucm, wxString::Format("script-message-received::%s", name).utf8_str(),
+                     G_CALLBACK(wxgtk_webview_webkit_script_message_received), this);
+    bool res = webkit_user_content_manager_register_script_message_handler(ucm, name.utf8_str());
+    if (res)
+    {
+        // Make webkit message handler available under common name
+        wxString js = wxString::Format("window.%s = window.webkit.messageHandlers.%s;",
+                name, name);
+        AddUserScript(js);
+        RunScript(js);
+    }
+
+    return res;
+}
+
+bool wxWebViewWebKit::RemoveScriptMessageHandler(const wxString& name)
+{
+    WebKitUserContentManager *ucm = webkit_web_view_get_user_content_manager(m_web_view);
+    webkit_user_content_manager_unregister_script_message_handler(ucm, name.utf8_str());
+    return true;
+}
+
+bool wxWebViewWebKit::AddUserScript(const wxString& javascript,
+        wxWebViewUserScriptInjectionTime injectionTime)
+{
+    WebKitUserScript* userScript = webkit_user_script_new(
+        javascript.utf8_str(),
+        WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+        (injectionTime == wxWEBVIEW_INJECT_AT_DOCUMENT_START) ?
+            WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START : WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_END,
+        NULL, NULL
+    );
+    WebKitUserContentManager *ucm = webkit_web_view_get_user_content_manager(m_web_view);
+    webkit_user_content_manager_add_script(ucm, userScript);
+    webkit_user_script_unref(userScript);
+
+    return true;
+}
+
+void wxWebViewWebKit::RemoveAllUserScripts()
+{
+    WebKitUserContentManager *ucm = webkit_web_view_get_user_content_manager(m_web_view);
+    webkit_user_content_manager_remove_all_scripts(ucm);
+}
+
 void wxWebViewWebKit::RegisterHandler(wxSharedPtr<wxWebViewHandler> handler)
 {
     m_handlerList.push_back(handler);
@@ -1284,7 +1383,7 @@ long wxWebViewWebKit::Find(const wxString& text, int flags)
 {
     WebKitFindController* findctrl = webkit_web_view_get_find_controller(m_web_view);
     bool newSearch = false;
-    if(text != m_findText || 
+    if(text != m_findText ||
        (flags & wxWEBVIEW_FIND_MATCH_CASE) != (m_findFlags & wxWEBVIEW_FIND_MATCH_CASE))
     {
         newSearch = true;
